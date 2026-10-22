@@ -1,4 +1,3 @@
-import hmac
 import os
 import sqlite3
 import uuid
@@ -19,14 +18,25 @@ DB_PATH = os.environ.get("DB_PATH", "devices.db")
 MAX_ATTEMPTS = 3
 ph = PasswordHasher()  # Argon2id
 
-# ---------- Fixed login from Render Environment Variables ----------
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-if not ADMIN_USERNAME or not ADMIN_PASSWORD:
-    raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD environment variables.")
+# ---------- Logins from Render Environment Variables ----------
+# Any variable named USER_<username> = <password> becomes a login.
+#   USER_sathish = pass123   ->  username "sathish"
+# ADMIN_USERNAME / ADMIN_PASSWORD still work as one more login.
+# Passwords are hashed with Argon2id in memory; plain text is never compared directly.
+USERS = {}
+for _key, _value in os.environ.items():
+    if _key.startswith("USER_") and len(_key) > 5 and _value:
+        USERS[_key[5:]] = ph.hash(_value)
 
-# Password is hashed with Argon2id in memory; plain password is never compared directly.
-ADMIN_HASH = ph.hash(ADMIN_PASSWORD)
+_admin_user = os.environ.get("ADMIN_USERNAME", "")
+_admin_pass = os.environ.get("ADMIN_PASSWORD", "")
+if _admin_user and _admin_pass:
+    USERS[_admin_user] = ph.hash(_admin_pass)
+
+if not USERS:
+    raise RuntimeError("Add at least one login, e.g. USER_sathish = yourpassword")
+
+DUMMY_HASH = ph.hash("dummy-password-for-timing")
 
 
 # ---------- Database (device block only) ----------
@@ -113,21 +123,21 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
-        user_ok = hmac.compare_digest(username.encode(), ADMIN_USERNAME.encode())
+        stored_hash = USERS.get(username)
         try:
-            ph.verify(ADMIN_HASH, password)
-            pass_ok = True
+            ph.verify(stored_hash or DUMMY_HASH, password)
+            pass_ok = stored_hash is not None
         except VerifyMismatchError:
             pass_ok = False
 
         db = get_db()
-        if user_ok and pass_ok:
+        if pass_ok:
             db.execute(
                 "UPDATE devices SET failed_attempts = 0 WHERE device_id = ?",
                 (g.device_id,),
             )
             db.commit()
-            session["user"] = ADMIN_USERNAME
+            session["user"] = username
             return redirect(url_for("welcome"))
 
         attempts = device["failed_attempts"] + 1
