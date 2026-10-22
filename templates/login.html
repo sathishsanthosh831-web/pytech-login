@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Login - py.tech{% endblock %}
+{% block content %}
+{% if blocked %}
+  <h1>🚫 Blocked</h1>
+  <div class="error">Too many wrong attempts. This device is permanently blocked.</div>
+{% else %}
+  <h1>Login</h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" autocomplete="off">
+    <label>Username</label>
+    <input name="username" required>
+    <label>Password</label>
+    <input name="password" type="password" required>
+    <button type="submit">Login</button>
+  </form>
+  <div class="center">New user? <a href="/register">Register</a></div>
+{% endif %}
+{% endblock %}

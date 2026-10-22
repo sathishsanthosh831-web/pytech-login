@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}py.tech{% endblock %}</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
+  .card{width:100%;max-width:360px;margin:16px;padding:28px;border-radius:14px;
+        background:#1e293b;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  h1{margin:0 0 18px;font-size:1.5rem;text-align:center}
+  input{width:100%;padding:12px;margin:6px 0 14px;border-radius:8px;border:1px solid #334155;
+        background:#0f172a;color:#e2e8f0;font-size:1rem}
+  button{width:100%;padding:12px;border:0;border-radius:8px;background:#38bdf8;
+         color:#0f172a;font-weight:700;font-size:1rem;cursor:pointer}
+  .error{background:#7f1d1d;padding:10px;border-radius:8px;margin-bottom:12px;font-size:.9rem}
+  a{color:#38bdf8}
+  .center{text-align:center;margin-top:14px;font-size:.9rem}
+</style>
+</head>
+<body><div class="card">{% block content %}{% endblock %}</div></body>
+</html>
