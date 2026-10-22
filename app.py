@@ -1,3 +1,4 @@
+import hmac
 import os
 import sqlite3
 import uuid
@@ -14,12 +15,21 @@ app.config.update(
     SESSION_COOKIE_SECURE=os.environ.get("HTTPS", "0") == "1",
 )
 
-DB_PATH = os.environ.get("DB_PATH", "users.db")
+DB_PATH = os.environ.get("DB_PATH", "devices.db")
 MAX_ATTEMPTS = 3
-ph = PasswordHasher()  # Argon2id (strongest default)
+ph = PasswordHasher()  # Argon2id
+
+# ---------- Fixed login from Render Environment Variables ----------
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+    raise RuntimeError("Set ADMIN_USERNAME and ADMIN_PASSWORD environment variables.")
+
+# Password is hashed with Argon2id in memory; plain password is never compared directly.
+ADMIN_HASH = ph.hash(ADMIN_PASSWORD)
 
 
-# ---------- Database ----------
+# ---------- Database (device block only) ----------
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -38,11 +48,6 @@ def init_db():
     db = sqlite3.connect(DB_PATH)
     db.executescript(
         """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL
-        );
         CREATE TABLE IF NOT EXISTS devices (
             device_id TEXT PRIMARY KEY,
             failed_attempts INTEGER NOT NULL DEFAULT 0,
@@ -97,30 +102,6 @@ def home():
     return redirect(url_for("welcome" if "user" in session else "login"))
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if get_device()["is_blocked"]:
-        return render_template("login.html", blocked=True), 403
-    error = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        if len(username) < 3 or len(password) < 8:
-            error = "Username min 3 characters, password min 8 characters."
-        else:
-            db = get_db()
-            try:
-                db.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, ph.hash(password)),
-                )
-                db.commit()
-                return redirect(url_for("login"))
-            except sqlite3.IntegrityError:
-                error = "Username already exists."
-    return render_template("register.html", error=error)
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     device = get_device()
@@ -131,32 +112,22 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
+
+        user_ok = hmac.compare_digest(username.encode(), ADMIN_USERNAME.encode())
+        try:
+            ph.verify(ADMIN_HASH, password)
+            pass_ok = True
+        except VerifyMismatchError:
+            pass_ok = False
+
         db = get_db()
-        user = db.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
-
-        ok = False
-        if user:
-            try:
-                ph.verify(user["password_hash"], password)
-                ok = True
-            except VerifyMismatchError:
-                ok = False
-
-        if ok:
-            # Upgrade hash automatically if Argon2 settings get stronger later
-            if ph.check_needs_rehash(user["password_hash"]):
-                db.execute(
-                    "UPDATE users SET password_hash = ? WHERE id = ?",
-                    (ph.hash(password), user["id"]),
-                )
+        if user_ok and pass_ok:
             db.execute(
                 "UPDATE devices SET failed_attempts = 0 WHERE device_id = ?",
                 (g.device_id,),
             )
             db.commit()
-            session["user"] = user["username"]
+            session["user"] = ADMIN_USERNAME
             return redirect(url_for("welcome"))
 
         attempts = device["failed_attempts"] + 1
